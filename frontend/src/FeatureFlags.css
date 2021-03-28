@@ -1,0 +1,31 @@
+.flags-table {
+    border-collapse: collapse;
+    width: 100%;
+}
+
+.flags-table_header {
+    color: #1A237E;
+    background-color: #ECECEC;
+    border-bottom: #BDBDBD solid 2px;
+}
+
+.flags-table tr {
+    border-bottom: #BDBDBD solid 1px;
+}
+
+.flags-table th {
+    text-align: left;
+}
+
+.flags-table th, td {
+    padding: 10px 15px;
+}
+
+.buttons-group {
+    padding: 5px;
+    float: right;
+}
+
+.button {
+    margin: 10px;
+}
