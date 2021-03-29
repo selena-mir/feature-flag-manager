@@ -4,14 +4,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sperasoft.featureFlagsManager.model.Feature;
 import com.sperasoft.featureFlagsManager.model.FeatureFlag;
 import com.sperasoft.featureFlagsManager.model.Region;
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
+import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -19,9 +18,13 @@ import java.util.stream.Collectors;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.NonNull;
 import lombok.Setter;
-import lombok.SneakyThrows;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -36,13 +39,20 @@ public class FeatureFlagsServiceImpl implements FeatureFlagsService {
         return getFlagsFromDtos(getFlagsFromRemoteService());
     }
 
-    @SneakyThrows
+    @NonNull
     private List<FlagDto> getFlagsFromRemoteService() {
-        HttpURLConnection connection = (HttpURLConnection) new URL(SERVICE_URL).openConnection();
-        connection.setRequestMethod("GET");
-        BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
-        String response = bufferedReader.readLine();
-        return Arrays.asList(new ObjectMapper().readValue(response, FlagDto[].class));
+        try {
+            HttpURLConnection connection = (HttpURLConnection) new URL(SERVICE_URL).openConnection();
+            InputStream responseInputStream = connection.getInputStream();
+            if (connection.getResponseCode() == HttpStatus.OK.value()) {
+                return Arrays.asList(new ObjectMapper().readValue(responseInputStream, FlagDto[].class));
+            } else {
+                ErrorModel errorModel = new ObjectMapper().readValue(responseInputStream, ErrorModel.class);
+                throw new RuntimeException("Features flags data wasn't fetched. " + errorModel.getMessage());
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Error during fetching features flags from service.", e.getCause());
+        }
     }
 
     private List<FeatureFlag> getFlagsFromDtos(List<FlagDto> flags) {
@@ -58,24 +68,32 @@ public class FeatureFlagsServiceImpl implements FeatureFlagsService {
         return getFlagsFromDtos(result);
     }
 
-    @SneakyThrows
+    @NonNull
     private List<FlagDto> saveFlagsToRemoteService(FlagDto flag) {
-        HttpURLConnection connection = (HttpURLConnection) new URL(SERVICE_URL).openConnection();
-        connection.setRequestMethod("POST");
-        connection.setRequestProperty("Content-Type", "application/json");
-        connection.setRequestProperty("Accept", "application/json");
-        connection.setDoOutput(true);
-        try (OutputStream os = connection.getOutputStream()) {
-            new ObjectMapper().writeValue(os, flag);
+        try {
+            HttpURLConnection connection = (HttpURLConnection) new URL(SERVICE_URL).openConnection();
+            connection.setRequestMethod(HttpMethod.POST.name());
+            connection.setRequestProperty(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE);
+            connection.setRequestProperty(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE);
+            connection.setDoOutput(true);
+            try (OutputStream outputStream = connection.getOutputStream()) {
+                new ObjectMapper().writeValue(outputStream, flag);
+            }
+            InputStream responseInputStream = connection.getInputStream();
+            if (connection.getResponseCode() == HttpStatus.OK.value()) {
+                return Arrays.asList(new ObjectMapper().readValue(responseInputStream, FlagDto[].class));
+            } else {
+                ErrorModel errorModel = new ObjectMapper().readValue(responseInputStream, ErrorModel.class);
+                throw new RuntimeException("Features flags data wasn't saved. " + errorModel.getMessage());
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Error during saving features flags.", e.getCause());
         }
-        BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
-        String response = bufferedReader.readLine();
-        return Arrays.asList(new ObjectMapper().readValue(response, FlagDto[].class));
     }
 
     @Override
     public List<Region> getRegions() {
-        return Collections.unmodifiableList(regions);
+        return new ArrayList<>(regions);
     }
 
     @Setter
@@ -129,5 +147,13 @@ public class FeatureFlagsServiceImpl implements FeatureFlagsService {
             }
             return result;
         }
+    }
+
+    @Setter
+    @Getter
+    @NoArgsConstructor
+    private static class ErrorModel {
+        private int code;
+        private String message;
     }
 }
